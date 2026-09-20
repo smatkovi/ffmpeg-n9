@@ -18,7 +18,15 @@ set -e
 
 FFMPEG=/opt/ffmpeg/bin/ffmpeg
 FFPROBE=/opt/ffmpeg/bin/ffprobe
-[ -x "$FFMPEG" ] || { FFMPEG=ffmpeg; FFPROBE=ffprobe; }
+if [ ! -x "$FFMPEG" ]; then
+    # Not installed from the package -- fall back to whatever is on PATH.
+    FFMPEG=$(command -v ffmpeg 2>/dev/null || true)
+    FFPROBE=$(command -v ffprobe 2>/dev/null || true)
+fi
+if [ -z "$FFMPEG" ] || [ -z "$FFPROBE" ]; then
+    echo "ffmpeg/ffprobe not found in /opt/ffmpeg/bin or on PATH." >&2
+    exit 1
+fi
 
 IN=$1
 [ -n "$IN" ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -27,8 +35,11 @@ IN=$1
 OUT=$2
 [ -n "$OUT" ] || OUT="${IN%.*}.m4a"
 
+# Two different failures, two different messages: lumping them together as
+# "no audio stream" is what this script exists to avoid.
 CODEC=$("$FFPROBE" -v error -select_streams a:0 \
-        -show_entries stream=codec_name -of default=nw=1:nk=1 "$IN" 2>/dev/null || true)
+        -show_entries stream=codec_name -of default=nw=1:nk=1 "$IN" 2>/dev/null) || {
+    echo "$FFPROBE could not read $IN" >&2; exit 1; }
 [ -n "$CODEC" ] || { echo "$IN has no audio stream" >&2; exit 1; }
 
 case "$OUT" in

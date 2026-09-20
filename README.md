@@ -41,21 +41,21 @@ device, and nothing can break when Harmattan's own libraries move.
 the IVA2.2 only matters afterwards, when the phone *plays* the result. So the
 question is which output the N9's player decodes in hardware:
 
-| target | on the N9 | in this build |
+| target | on the device | in this build |
 | --- | --- | --- |
-| **AAC in `.m4a`** | DSP path, cheapest playback | native encoder, **no external library** |
-| MP3 | DSP path | would need libmp3lame cross-built |
-| Ogg Vorbis | software (CPU) | decode + stream copy only, no encoder |
-| Opus | not supported — 2012 codec, 2011 phone | decode only |
+| **AAC in `.m4a`** | `libgstnokiaaacdec.so` — DSP | native encoder, **no external library** |
+| MP3 | `libgstnokiamp3dec.so` — DSP | would need libmp3lame cross-built |
+| Ogg Vorbis | `libgstivorbisdec.so` — integer Tremor, CPU | decode + stream copy only, no encoder |
+| Opus | **no plugin at all** — 2012 codec, 2011 phone | decode only |
+
+That column is read off an N950's `/usr/lib/gstreamer-0.10/`, not guessed:
+Nokia ships separate DSP decoders for AAC and MP3, Vorbis only as the software
+Tremor decoder, and nothing whatsoever for Opus.
 
 **AAC/M4A is the recommendation on two independent grounds**: it is the DSP
 path, and ffmpeg's native AAC encoder needs no external library at all, which
 is why this build has no dependencies to speak of. Its quality has been fine
 since ffmpeg 3.0.
-
-> The DSP column is **expectation, not measurement** — the N9 was unreachable
-> for this whole session. To settle it on the phone:
-> `ls /usr/lib/gstreamer-0.10/ | grep -iE 'dsp|aac|mp3|vorbis|opus'`
 
 MP3 is a small follow-up if wanted: libmp3lame is plain C with autotools and
 cross-builds against the same sysroot in a couple of minutes.
@@ -118,9 +118,22 @@ The last row is worth the extra command: qemu's default CPU model is a newer
 core than the N9's, so anything the real A8 cannot execute would go unnoticed.
 Pinning the model is as close to the device as this machine gets.
 
-A 60 s stereo Opus → AAC run took 13 s under qemu. That is an emulator on a
-desktop, **not** a Cortex-A8 at 1 GHz, so treat it as "the same order of
-magnitude as realtime", not as a device measurement.
+## On the device
+
+Run on a **Nokia N950 (RM-680), Harmattan PR1.3**, `/bin/sh` being BusyBox ash:
+
+| | |
+| --- | --- |
+| 60 s stereo Opus → AAC 128k | **38.9 s** — about 1.5× realtime |
+| output vs. the same conversion under qemu | **md5-identical** |
+| `webm2audio` `.m4a` / `.mp4` / `.ogg` / `.wav` | all convert; `.aac` refused by name |
+
+The md5 match is the useful part: qemu was not merely close, it produced the
+same bytes, so the earlier emulator results stand as written. What qemu got
+wrong was only speed — it was three times *faster* than the real A8.
+
+1.5× realtime means a 4-minute track takes about 2½ minutes. Fine for the odd
+conversion, not something to run on an album while the phone is on battery.
 
 ## Packaging notes
 
@@ -161,9 +174,10 @@ from the Snapszer port.
 * [x] Conversions verified under qemu-arm, output checked by level and
       frequency rather than by existence.
 * [x] `ffmpeg-n9_1.0_armel.deb` built and structurally checked.
-* [ ] **Nothing has run on a device yet.** The N9 was unreachable all
-      session; the N950 at 192.168.1.8 answers SSH but does not accept the
-      `id_rsa_n9` key. Speed on the device and the DSP table above are both
-      unverified — qemu proves the code is right, not that it is fast enough.
+* [x] **Runs on an N950** (RM-680, PR1.3): all conversions verified there,
+      output byte-identical to qemu, 1.5× realtime measured.
+* [x] DSP table read off the device's own GStreamer plugins.
+* [ ] Not yet installed from the .deb on a device — the binaries were tested
+      from `/home/user`. The `/usr/bin` symlinks and `postinst` are unexercised.
 * [ ] If MP3 output is wanted, cross-build libmp3lame and add
       `--enable-libmp3lame`.
