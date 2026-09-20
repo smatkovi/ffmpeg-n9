@@ -1,0 +1,62 @@
+#!/bin/sh
+# webm2audio IN [OUT]   -- pull the audio out of a .webm on the N9.
+#
+# Exists because the obvious command does the wrong thing: without -vn ffmpeg
+# tries to carry the video into the .m4a too and stops with "Default encoder
+# for format ipod (codec h264) is probably disabled", which does not hint at
+# the actual problem. This always drops the video.
+#
+# Default output is AAC in .m4a -- that is what the phone's own player decodes
+# on the DSP. If the webm already carries Vorbis and OUT ends in .ogg, the
+# stream is copied instead of re-encoded, which is lossless and takes about a
+# second.
+#
+#   webm2audio clip.webm                 -> clip.m4a  (AAC 128k)
+#   webm2audio clip.webm out.ogg         -> copy if Vorbis, else refuse
+#   BITRATE=192k webm2audio clip.webm
+set -e
+
+FFMPEG=/opt/ffmpeg/bin/ffmpeg
+FFPROBE=/opt/ffmpeg/bin/ffprobe
+[ -x "$FFMPEG" ] || { FFMPEG=ffmpeg; FFPROBE=ffprobe; }
+
+IN=$1
+[ -n "$IN" ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -f "$IN" ] || { echo "no such file: $IN" >&2; exit 1; }
+
+OUT=$2
+[ -n "$OUT" ] || OUT="${IN%.*}.m4a"
+
+CODEC=$("$FFPROBE" -v error -select_streams a:0 \
+        -show_entries stream=codec_name -of default=nw=1:nk=1 "$IN" 2>/dev/null || true)
+[ -n "$CODEC" ] || { echo "$IN has no audio stream" >&2; exit 1; }
+
+case "$OUT" in
+    *.ogg)
+        # Only a copy makes sense here: there is no Vorbis encoder in this
+        # build, and re-encoding Opus to Vorbis would lose quality twice over.
+        case "$CODEC" in
+            vorbis|opus) set -- -vn -c:a copy ;;
+            *) echo "$IN is $CODEC -- cannot put that in .ogg without an encoder." >&2
+               echo "Use an .m4a output instead." >&2; exit 1 ;;
+        esac
+        ;;
+    *.m4a|*.mp4)
+        if [ "$CODEC" = aac ]; then
+            set -- -vn -c:a copy          # already AAC, no point re-encoding
+        else
+            set -- -vn -c:a aac -b:a "${BITRATE:-128k}"
+        fi
+        ;;
+    *.wav)
+        set -- -vn -c:a pcm_s16le ;;
+    *)
+        # .aac and .oga are deliberately not here: they need the adts and oga
+        # muxers, which this build does not have, and ffmpeg then only says
+        # "Unable to find a suitable output format".
+        echo "unknown output type: $OUT (use .m4a, .ogg or .wav)" >&2; exit 1 ;;
+esac
+
+echo "$IN ($CODEC) -> $OUT"
+"$FFMPEG" -hide_banner -loglevel warning -y -i "$IN" "$@" "$OUT"
+ls -l "$OUT"

@@ -1,0 +1,2 @@
+# Build output: the binaries and the deb go to the GitHub release, not into git.
+build/
